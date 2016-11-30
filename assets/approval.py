@@ -184,7 +184,7 @@ class ApprovalResource:
                 if approval_lock.claimed:
                     # We want to wait until the lock is not claimed
                     while approval_lock.claimed:
-                        log.debug("The lock %s is already claimed" % params['lock_name'])
+                        log.info("The lock %s is already claimed" % params['lock_name'])
                         refresh_approval = self.query_lock(params['lock_name'])
                         if not refresh_approval:
                             log.info("The lock does not exist")
@@ -199,6 +199,7 @@ class ApprovalResource:
                 approval_lock.claimed = True
                 approval_lock.timestamp = datetime.utcnow()
                 self.engine.save(approval_lock, overwrite=True)
+                log.info("Claiming the lock %s" % params['lock_name'])
             else:
                 approval_lock = Approval(
                     id=uuid.uuid4().urn[9:],
@@ -213,14 +214,16 @@ class ApprovalResource:
                 if need_approval:
                     approval_lock.need_approval = True
                 self.engine.save(approval_lock, overwrite=True)
-                log.debug('Writing the lock')
                 log.debug(approval_lock)
+                log.info("Claiming the lock %s" % params['lock_name'])
         elif 'release' in params['action']:
             if approval_lock:
                 approval_lock.claimed = False
                 approval_lock.approved = None
                 approval_lock.timestamp = datetime.utcnow()
                 self.engine.save(approval_lock, overwrite=True)
+                log.info("Releasing the lock %s" % params['lock_name'])
+
             else:
                 log.info("The lock does not exist")
                 exit(1)
