@@ -1,0 +1,119 @@
+jobs:
+  - name: push-dev-image
+    plan:
+      - get: resource-src
+        trigger: true
+      - task: build-artifacts
+        file: resource-src/ci/tasks/build-dev-artifacts.yml
+      - put: approval-dev-image
+        params:
+          build: build-artifacts/
+
+  - name: test-unit
+    plan:
+      - get: resource-src
+        trigger: true
+        passed: [push-dev-image]
+      #- task: test-unit
+      #  file: resource-src/ci/tasks/test-unit.yml
+
+      
+  - name: push-test-image
+    plan:
+      - get: resource-src
+        trigger: true
+        passed: [test-unit]
+      - task: build-artifacts
+        file: resource-src/ci/tasks/build-prod-artifacts.yml
+      - put: approval-test-image
+        params:
+          build: build-artifacts/
+
+
+  - name: test1
+    plan:
+      - get: resource-src
+        trigger: true
+        passed: [push-test-image]
+      - put: approval
+        params:
+          lock_name: test1
+          action: claim
+          need_approval: true
+
+  - name: test2
+    plan:
+      - get: approval
+        trigger: true
+        passed: [test1]
+        params:
+          lock_name: test1
+          need_approval: true
+      - get: resource-src
+        trigger: true
+        passed: [test1]
+      - put: approval
+        params:
+          lock_name: test1
+          action: release
+
+  - name: push-prod-image
+    plan:
+      - get: resource-src
+        trigger: true
+        passed: [test2]
+      - put: approval-prod-image
+        params:
+          pull_repository: cycloid/approval-resource
+          pull_tag: test
+
+resource_types:
+- name: approval
+  type: docker-image
+  source:
+    # use tag `latest` for stable release
+    repository: cycloid/approval-resource
+    tag: test
+
+resources:
+- name: approval
+  type: approval
+  source:
+    #debug: true
+    AWS_ACCESS_KEY_ID: {{ec2_access_key}}
+    AWS_SECRET_ACCESS_KEY: {{ec2_secret_key}}
+    AWS_DEFAULT_REGION: eu-west-1
+    pool: cycloid-approval
+
+- name: resource-src
+  type: git
+  source:
+    uri: git@github.com:cycloidio/approval-resource.git
+    branch: develop
+    private_key: {{git_private_key}}
+
+- name: approval-dev-image
+  type: docker-image
+  source:
+    repository: cycloid/approval-resource
+    tag: dev
+    email: {{docker_email}}
+    username: {{docker_username}}
+    password: {{docker_password}}
+
+- name: approval-test-image
+  type: docker-image
+  source:
+    repository: cycloid/approval-resource
+    tag: test
+    email: {{docker_email}}
+    username: {{docker_username}}
+    password: {{docker_password}}
+- name: approval-prod-image
+  type: docker-image
+  source:
+    repository: cycloid/approval-resource
+    tag: latest
+    email: {{docker_email}}
+    username: {{docker_username}}
+    password: {{docker_password}}
