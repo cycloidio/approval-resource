@@ -13,6 +13,10 @@ import uuid
 
 
 class Approval(Model):
+    """
+        We define the dynamodb model of the Approval locks
+    """
+
     __metadata__ = {
         '_name': 'concourse-approval',
         'throughput': {
@@ -33,7 +37,13 @@ class Approval(Model):
 
 
 class ApprovalResource:
-    """Approval resource implementation."""
+    """
+        Approval resource implementation.
+        This python script is the target of symbolic links and is used for check, in and out.
+        These three commands are defined as methods on this class and common parameters live in the constructor.
+        To enable the debug output, the resource source configuration must have the debug parameter.
+
+    """
 
     def __init__(self, command_name, json_data, command_argument):
         self.command_name = command_name
@@ -62,8 +72,12 @@ class ApprovalResource:
     def check_cmd(self, source, version):
         """
         Check for new version(s)
-        This function will look on Dynamodb if there's a lock with the given prefix
-        and will return the last timestamp associated
+        This function will look on Dynamodb if there's a lock within the pool
+        and will return the last timestamps associated.
+        :param source: is an arbitrary JSON object which specifies the location of the resource,
+        including any credentials. This is passed verbatim from the pipeline configuration.
+        :param version: is a JSON object with string fields, used to uniquely identify an instance of the resource.
+        :return: a dict with the version fetched
         """
 
         log.debug('version: %s', version)
@@ -87,6 +101,16 @@ class ApprovalResource:
         return versions_list
 
     def in_cmd(self, target_dir, source, version, params):
+        """
+        This function will fetch a lock in dynamodb an write it in the target directory.
+        If parameters lock_name and need_approval are passed, then the function will wait for a change
+        on the dynamodb lock item.
+        :param target_dir: a temporary directory which will be exposed as an output
+        :param source: is the same value as passed to check
+        :param version: is the same type of value passed to check, and specifies the version to fetch.
+        :param params: is an arbitrary JSON object passed along verbatim from params on a get.
+        :return: a dict with the version fetched and the metadata of the lock
+        """
         log.debug('source: %s', source)
         log.debug('version: %s', version)
 
@@ -109,9 +133,12 @@ class ApprovalResource:
             if approval_lock.need_approval:
                 while approval_lock.approved is None:
                     log.info("The lock %s is waiting for an approval" % params['lock_name'])
+                    # Query the lock item in the loop
                     refresh_approval = self.query_lock(params['lock_name'])
+                    # Is it approved ?
                     if refresh_approval.approved:
                         approval_lock.approved = True
+                    # If not, we should fail the job and release the lock
                     if refresh_approval.approved is False:
                         log.info("The lock hasn't been approved, exiting")
                         approval_lock.claimed = False
@@ -119,8 +146,10 @@ class ApprovalResource:
                         self.engine.save(approval_lock, overwrite=True)
                         exit(1)
                     else:
+                        # Is hasn't been approved or rejected, waiting a bit more
                         time.sleep(self.wait_lock)
         else:
+            # There is no approval, we have just a normal lock. Let's fetch the lock
             approval_lock = self.engine.query(Approval)\
                 .filter(
                     Approval.timestamp >= datetime.fromtimestamp(Decimal(version.get('timestamp'))),
@@ -155,11 +184,17 @@ class ApprovalResource:
             exit(0)
 
         return {
-            'version': {"timestamp": "{timestamp}".format(timestamp=Decimal(getattr(approval_lock, 'timestamp').timestamp()))},
+            'version': {"timestamp": "{timestamp}".format(
+                timestamp=Decimal(getattr(approval_lock, 'timestamp').timestamp()))},
             'metadata': metadata,
         }
 
     def query_lock(self, lock_name):
+        """
+        This method is used to query the lock in the approval loop to check if there is a change on it
+        :param lock_name: The name of the lock to fetch
+        :return: the dynamodb item
+        """
         return self.engine.query(Approval) \
             .filter(
                 lockname=lock_name,
@@ -168,6 +203,15 @@ class ApprovalResource:
             .first(desc=True)
 
     def out_cmd(self, target_dir, source, params):
+        """
+        This method is responsible to acquire or release a lock. If the lock doesn't exist yet, then the method
+        create it automatically.
+        If a lock is already acquired, the method will wait indefinitely until being able to acquire it.
+        :param target_dir:
+        :param source: is the same value as passed to check.
+        :param params: is an arbitrary JSON object passed along verbatim from params on a put.
+        :return: a dict with the version fetched and the metadata of the lock
+        """
         metadata = []
 
         if 'lock_name' not in params:
@@ -255,34 +299,39 @@ class ApprovalResource:
             json.dump(metadata, metadata_file)
 
         return {
-            'version': {"timestamp": "{timestamp}".format(timestamp=Decimal(approval_lock.timestamp.timestamp()))},
+            'version': {"timestamp": "{timestamp}".format(
+                timestamp=Decimal(approval_lock.timestamp.timestamp()))},
             'metadata': metadata,
         }
 
     def run(self):
         """Parse input/arguments, perform requested command return output."""
-        # combine source and params
+        # Extract informations from the json
         source = self.data.get('source', {})
         params = self.data.get('params', {})
         version = self.data.get('version', {})
 
+        # To use AWS with efficiency, we are pushing the AWS credentials into environment
         os.environ['AWS_ACCESS_KEY_ID'] = source.get('AWS_ACCESS_KEY_ID', '')
         os.environ['AWS_SECRET_ACCESS_KEY'] = source.get('AWS_SECRET_ACCESS_KEY', '')
         os.environ['AWS_DEFAULT_REGION'] = source.get('AWS_DEFAULT_REGION', "eu-west-1")
         self.wait_lock = source.get('wait_lock', 10)
 
+        # Ensure we are receiving the required parameters on the configuration
         if 'pool' not in source:
             log.error("pool must exist in the source configuration")
             exit(1)
         else:
             self.pool = source.get('pool')
 
+        # Configure the connection to Dynamodb
         self.engine.connect_to_region(os.environ.get('AWS_DEFAULT_REGION', 'eu-west-1'))
         # Register our model with the engine so it can create the Dynamo table
         self.engine.register(Approval)
         # Create the dynamo table for our registered model
         self.engine.create_schema()
 
+        # Define which operation to perform
         if self.command_name == 'check':
             response = self.check_cmd(source, version)
         elif self.command_name == 'in':
