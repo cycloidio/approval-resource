@@ -1,9 +1,9 @@
 # approval-resource
 
-The approval resource copy the pool-resource but is backed by dynamodb on AWS.
-There is no "pool" of random lock to acquire like the pool-resource do, but the resource create on the fly a lock with a lockname until this one is released.
+The approval resource copies the pool-resource but is backed by dynamodb on AWS.
+There is no "pool" of random lock to acquire like the pool-resource does, but the resource creates on the fly a lock with a lockname until this one is released.
 
-This resource add a feature to let an external user approve or reject a step. For example, if you want an user validation between the job `test1` and `test2`, then you should use this resource.
+This resource adds a feature to let an external user approve or reject a step. For example, if you want a user validation between the job `test1` and `test2`, then you should use this resource.
 
 ## IAM configuration
 
@@ -56,7 +56,7 @@ The check command will query the dynamodb table and retrieve all locks of a pool
 
 Outputs 2 files:
 
-* `metadata`: Contains the contents of whatever was in your lock file. This is
+* `metadata`: Contains the content of whatever was in your lock file. This is
   useful for environment configuration settings.
 
 * `name`: Contains the name of lock that was acquired.
@@ -66,7 +66,7 @@ If the `approved` field is `False`, it will exit with a `1` status and then, fai
 
 #### Parameters
 
-* `lock_name`: *Optional.* This field is optional but goes with the `need_approval` field. It specified which lock to fetch on the dynamodb.
+* `lock_name`: *Optional.* This field is optional but goes with the `need_approval` field. It specifies which lock to fetch from the dynamodb.
   
 * `need_approval`: *Optional.* If set, the `get` will wait indefinitely for a change on the `approved` field.
 
@@ -86,7 +86,7 @@ Performs one of the following actions to change the state of the pool.
 
 ## Example Concourse Configuration
 
-The following example pipeline models acquiring, passing through, and releasing
+The following example pipeline models: acquiring, passing through, and releasing
 a lock based on the example git repository structure:
 
 ```
@@ -141,7 +141,7 @@ jobs:
 ## CLI
 
 To manage the lock, there's a little CLI script to interact with dynamodb.
-You can of course write our own tool.
+You can of course write your own tool.
 
 ### List
 ```
