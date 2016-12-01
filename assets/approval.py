@@ -130,24 +130,26 @@ class ApprovalResource:
                 .first(desc=True)
 
             # We want to wait until the approve is done
-            if approval_lock.need_approval:
-                while approval_lock.approved is None:
-                    log.info("The lock %s is waiting for an approval" % params['lock_name'])
-                    # Query the lock item in the loop
-                    refresh_approval = self.query_lock(params['lock_name'])
-                    # Is it approved ?
-                    if refresh_approval.approved:
-                        approval_lock.approved = True
-                    # If not, we should fail the job and release the lock
-                    if refresh_approval.approved is False:
-                        log.info("The lock hasn't been approved, exiting")
-                        approval_lock.claimed = False
-                        approval_lock.approved = None
-                        self.engine.save(approval_lock, overwrite=True)
-                        exit(1)
-                    else:
-                        # Is hasn't been approved or rejected, waiting a bit more
-                        time.sleep(self.wait_lock)
+            while approval_lock.approved is None and approval_lock.need_approval:
+                log.info("The lock %s is waiting for an approval" % params['lock_name'])
+                # Query the lock item in the loop
+                refresh_approval = self.query_lock(lock_name=params['lock_name'])
+
+                # If hasn't been approved or rejected, waiting a bit more
+                if refresh_approval.approved is None:
+                    time.sleep(self.wait_lock)
+                    continue
+
+                # Is it approved ?
+                if refresh_approval.approved:
+                    approval_lock.approved = True
+                # If not, we should fail the job and release the lock
+                else:
+                    log.info("The lock hasn't been approved, exiting")
+                    approval_lock.claimed = False
+                    approval_lock.approved = None
+                    self.engine.save(approval_lock, overwrite=True)
+                    exit(1)
         else:
             # There is no approval, we have just a normal lock. Let's fetch the lock
             approval_lock = self.engine.query(Approval)\
@@ -158,36 +160,100 @@ class ApprovalResource:
                 .first(desc=True)
 
         metadata = []
-        if approval_lock:
-            for key in approval_lock.keys_():
-                value = getattr(approval_lock, key)
-                if type(value) is datetime:
-                    value = str(Decimal(value.timestamp()))
-                if type(value) is bool:
-                    value = str(value)
-                metadata.append(
-                    {
-                        'name': key,
-                        'value': value
-                    }
-                )
 
-            name_path = os.path.join(target_dir, 'name')
-            with open(name_path, 'w') as name:
-                name.write(getattr(approval_lock, 'lockname'))
-
-            metadata_path = os.path.join(target_dir, 'metadata')
-            with open(metadata_path, 'w') as metadata_file:
-                json.dump(metadata, metadata_file)
-        else:
+        if not approval_lock:
             log.info("No lock have been found")
             exit(0)
+        for key in approval_lock.keys_():
+            value = getattr(approval_lock, key)
+            if type(value) is datetime:
+                value = str(Decimal(value.timestamp()))
+            elif type(value) is bool:
+                value = str(value)
+            metadata.append(
+                {
+                    'name': key,
+                    'value': value
+                }
+            )
+
+        name_path = os.path.join(target_dir, 'name')
+        with open(name_path, 'w') as name:
+            name.write(getattr(approval_lock, 'lockname'))
+
+        metadata_path = os.path.join(target_dir, 'metadata')
+        with open(metadata_path, 'w') as metadata_file:
+            json.dump(metadata, metadata_file)
 
         return {
             'version': {"timestamp": "{timestamp}".format(
                 timestamp=Decimal(getattr(approval_lock, 'timestamp').timestamp()))},
             'metadata': metadata,
         }
+
+    def _do_claim(self, params):
+        """
+        This method handle the claiming of a lock. If the lock is already claimed, it wait until the lock is
+        available. Else, it create the lock.
+        :param params: the params passed as parameters of the resource
+        :return: the approval_lock item in dynamodb
+        """
+        approval_lock = self.query_lock(lock_name=params['lock_name'])
+        need_approval = params.get('need_approval', False)
+
+        if approval_lock:
+            # We want to wait until the lock is not claimed
+            while approval_lock.claimed:
+                log.info("The lock %s is already claimed" % params['lock_name'])
+                refresh_approval = self.query_lock(lock_name=params['lock_name'])
+                if not refresh_approval:
+                    log.info("The lock does not exist")
+                    exit(1)
+                if not refresh_approval.claimed:
+                    approval_lock.claimed = False
+                else:
+                    time.sleep(self.wait_lock)
+
+        else:
+            approval_lock = Approval(
+                id=uuid.uuid4().urn[9:],
+                lockname=params['lock_name'],
+                pool=self.pool,
+                claimed=True,
+                team=os.getenv('BUILD_TEAM_NAME', "team"),
+                pipeline=os.getenv('BUILD_PIPELINE_NAME', "pipeline"),
+                description=params.get('description', None)
+            )
+
+        if need_approval:
+            approval_lock.need_approval = True
+        approval_lock.claimed = True
+        approval_lock.timestamp = datetime.utcnow()
+        self.engine.save(approval_lock, overwrite=True)
+        log.info("Claiming the lock %s" % params['lock_name'])
+
+        return approval_lock
+
+    def _do_release(self, params):
+        """
+        This method handle the release of a claimed lock
+
+        :param params: the params passed as parameters of the resource
+        :return: the approval_lock item in dynamodb
+        """
+        approval_lock = self.query_lock(lock_name=params['lock_name'])
+
+        if not approval_lock:
+            log.info("The lock does not exist")
+            exit(1)
+
+        approval_lock.claimed = False
+        approval_lock.approved = None
+        approval_lock.timestamp = datetime.utcnow()
+        self.engine.save(approval_lock, overwrite=True)
+        log.info("Releasing the lock %s" % params['lock_name'])
+
+        return approval_lock
 
     def query_lock(self, lock_name):
         """
@@ -219,58 +285,10 @@ class ApprovalResource:
         if 'action' not in params:
             log.error('You must set an action on params')
 
-        approval_lock = self.query_lock(params['lock_name'])
-        need_approval = params.get('need_approval', False)
-
         if 'claim' in params['action']:
-            if approval_lock:
-                # If the lock is claimed in database
-                if approval_lock.claimed:
-                    # We want to wait until the lock is not claimed
-                    while approval_lock.claimed:
-                        log.info("The lock %s is already claimed" % params['lock_name'])
-                        refresh_approval = self.query_lock(params['lock_name'])
-                        if not refresh_approval:
-                            log.info("The lock does not exist")
-                            exit(1)
-                        if not refresh_approval.claimed:
-                            approval_lock.claimed = False
-                        else:
-                            time.sleep(self.wait_lock)
-
-                if need_approval:
-                    approval_lock.need_approval = True
-                approval_lock.claimed = True
-                approval_lock.timestamp = datetime.utcnow()
-                self.engine.save(approval_lock, overwrite=True)
-                log.info("Claiming the lock %s" % params['lock_name'])
-            else:
-                approval_lock = Approval(
-                    id=uuid.uuid4().urn[9:],
-                    lockname=params['lock_name'],
-                    pool=self.pool,
-                    timestamp=datetime.utcnow(),
-                    claimed=True,
-                    team=os.getenv('BUILD_TEAM_NAME', "team"),
-                    pipeline=os.getenv('BUILD_PIPELINE_NAME', "pipeline"),
-                    description=params.get('description', None)
-                )
-                if need_approval:
-                    approval_lock.need_approval = True
-                self.engine.save(approval_lock, overwrite=True)
-                log.debug(approval_lock)
-                log.info("Claiming the lock %s" % params['lock_name'])
+            approval_lock = self._do_claim(params=params)
         elif 'release' in params['action']:
-            if approval_lock:
-                approval_lock.claimed = False
-                approval_lock.approved = None
-                approval_lock.timestamp = datetime.utcnow()
-                self.engine.save(approval_lock, overwrite=True)
-                log.info("Releasing the lock %s" % params['lock_name'])
-
-            else:
-                log.info("The lock does not exist")
-                exit(1)
+            approval_lock = self._do_release(params=params)
         else:
             log.error('Please use an available action')
             exit(1)
@@ -280,7 +298,7 @@ class ApprovalResource:
             value = getattr(approval_lock, key)
             if type(value) is datetime:
                 value = str(Decimal(value.timestamp()))
-            if type(value) is bool:
+            elif type(value) is bool:
                 value = str(value)
 
             metadata.append(
@@ -341,4 +359,7 @@ class ApprovalResource:
 
         return json.dumps(response)
 
-print(ApprovalResource(os.path.basename(__file__), sys.stdin.read(), sys.argv[1:]).run())
+if __name__ == "__main__":
+    print(ApprovalResource(command_name=os.path.basename(__file__),
+                           json_data=sys.stdin.read(),
+                           command_argument=sys.argv[1:]).run())
