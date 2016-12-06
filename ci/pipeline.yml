@@ -50,7 +50,6 @@ jobs:
         params:
           lock_name: test1
           need_approval: true
-          timeout: 3 # Will wait 3 minutes for an approval
       - get: resource-src
         trigger: true
         passed: [lock]
@@ -93,7 +92,7 @@ resources:
   type: git
   source:
     uri: git@github.com:cycloidio/approval-resource.git
-    branch: develop
+    branch: master
     private_key: {{git_private_key}}
 
 - name: approval-dev-image

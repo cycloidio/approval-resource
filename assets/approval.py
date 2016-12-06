@@ -138,6 +138,7 @@ class ApprovalResource:
                         refresh_approval.approved = False
                     countdown = (approval_lock.timestamp.replace(microsecond=0) +
                                  timedelta(minutes=params['timeout'])) - datetime.now().replace(microsecond=0)
+                    timedelta(minutes=params['timeout']).total_seconds() / self.wait_lock
                     if countdown.days >= 0:
                         log.info("The lock %s is waiting for an approval. There is %s left" %
                                  (params['lock_name'], str(countdown)))
