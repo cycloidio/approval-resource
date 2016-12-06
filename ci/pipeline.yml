@@ -50,6 +50,7 @@ jobs:
         params:
           lock_name: test1
           need_approval: true
+          timeout: 3 # Will wait 3 minutes for an approval
       - get: resource-src
         trigger: true
         passed: [lock]

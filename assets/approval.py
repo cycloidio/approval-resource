@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 
-from datetime import (datetime, timezone)
+from datetime import (datetime, timezone, timedelta)
 from flywheel import Model, Field, Engine
+from flywheel.fields.types import DateTimeType
 from decimal import Decimal
 import simplejson as json
 import logging as log
@@ -27,7 +28,7 @@ class Approval(Model):
     id = Field(type=str, range_key=True)
     lockname = Field()
     pool = Field(hash_key=True)
-    timestamp = Field(type=datetime, index='ts-index')
+    timestamp = Field(data_type=DateTimeType(naive=True), index='ts-index')
     claimed = Field(type=bool)
     need_approval = Field(type=bool, default=False)
     approved = Field(type=bool, nullable=True)
@@ -117,9 +118,6 @@ class ApprovalResource:
         if not version:
             version = {"timestamp": 0}
 
-        if params:
-            need_approval = params.get('need_approval', False)
-
         # Does the get should wait for an approval or not ?
         if 'lock_name' in params and 'need_approval' in params:
             approval_lock = self.engine.query(Approval) \
@@ -131,10 +129,20 @@ class ApprovalResource:
 
             # We want to wait until the approve is done
             while approval_lock.approved is None and approval_lock.need_approval:
-                log.info("The lock %s is waiting for an approval" % params['lock_name'])
                 # Query the lock item in the loop
                 refresh_approval = self.query_lock(lock_name=params['lock_name'])
 
+                # If the lock has timed out, then we override the refresh_approval to simulate a reject
+                if 'timeout' in params:
+                    if approval_lock.timestamp + timedelta(minutes=params['timeout']) <= datetime.now():
+                        refresh_approval.approved = False
+                    countdown = (approval_lock.timestamp.replace(microsecond=0) +
+                                 timedelta(minutes=params['timeout'])) - datetime.now().replace(microsecond=0)
+                    if countdown.days >= 0:
+                        log.info("The lock %s is waiting for an approval. There is %s left" %
+                                 (params['lock_name'], str(countdown)))
+                else:
+                    log.info("The lock %s is waiting for an approval" % params['lock_name'])
                 # If hasn't been approved or rejected, waiting a bit more
                 if refresh_approval.approved is None:
                     time.sleep(self.wait_lock)
@@ -207,7 +215,7 @@ class ApprovalResource:
             # Then the get will see it was rejected, will release the lock and fail the job
             if override_approval:
                 approval_lock.approved = False
-                approval_lock.timestamp = datetime.utcnow()
+                approval_lock.timestamp = datetime.now()
                 self.engine.save(approval_lock, overwrite=True)
                 log.info("Rejecting the previous approval")
                 # Let the get fail before acquiring the new lock
@@ -240,7 +248,7 @@ class ApprovalResource:
             approval_lock.need_approval = True
         approval_lock.claimed = True
         approval_lock.approved = None
-        approval_lock.timestamp = datetime.utcnow()
+        approval_lock.timestamp = datetime.now()
         self.engine.save(approval_lock, overwrite=True)
         log.info("Claiming the lock %s" % params['lock_name'])
 
@@ -261,7 +269,7 @@ class ApprovalResource:
 
         approval_lock.claimed = False
         approval_lock.approved = None
-        approval_lock.timestamp = datetime.utcnow()
+        approval_lock.timestamp = datetime.now()
         self.engine.save(approval_lock, overwrite=True)
         log.info("Releasing the lock %s" % params['lock_name'])
 

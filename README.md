@@ -70,6 +70,7 @@ If the `approved` field is `False`, it will exit with a `1` status and then, fai
   
 * `need_approval`: *Optional.* If set, the `get` will wait indefinitely for a change on the `approved` field.
 
+* `timeout`: *Optional.* If set, the `get` will not wait indefinitely for a change on the `approved` field but will fail once the timeout is reached.
 
 ### `out`: Claim or release a lock.
 
