@@ -82,7 +82,9 @@ Performs one of the following actions to change the state of the pool.
 
 * `lock_name`: *Required.* This field contains the name of the lock to acquire/release
 
-* `need_approval`: *Optional.* If set, the `put` will add a field to tell the `get` that the .
+* `need_approval`: *Optional.* If set, the `put` will add a field to tell the `get` that it should wait for an approval.
+
+* `override_approval`: *Optional.* If set, the `put` will fail the previous approval to be able to claim the lock.
 
 ## Example Concourse Configuration
 
@@ -109,31 +111,31 @@ resources:
     pool: cycloid-approval
     
 jobs:
-  - name: test1
+  - name: lock
     plan:
       - get: resource-src
         trigger: true
-        passed: [push-test-image]
       - put: approval
         params:
-          lock_name: test1
+          lock_name: mylock
           action: claim
           need_approval: true
+          override_approval: true
 
-  - name: test2
+  - name: release-if-approved
     plan:
       - get: approval
         trigger: true
-        passed: [test1]
+        passed: [lock]
         params:
-          lock_name: test1
+          lock_name: mylock
           need_approval: true
       - get: resource-src
         trigger: true
-        passed: [test1]
+        passed: [lock]
       - put: approval
         params:
-          lock_name: test1
+          lock_name: mylock
           action: release
 
 ```

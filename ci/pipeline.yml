@@ -30,7 +30,7 @@ jobs:
           build: build-artifacts/
 
 
-  - name: test1
+  - name: lock
     plan:
       - get: resource-src
         trigger: true
@@ -40,18 +40,19 @@ jobs:
           lock_name: test1
           action: claim
           need_approval: true
+          override_approval: true
 
-  - name: test2
+  - name: release-if-approved
     plan:
       - get: approval
         trigger: true
-        passed: [test1]
+        passed: [lock]
         params:
           lock_name: test1
           need_approval: true
       - get: resource-src
         trigger: true
-        passed: [test1]
+        passed: [lock]
       - put: approval
         params:
           lock_name: test1
@@ -61,7 +62,7 @@ jobs:
     plan:
       - get: resource-src
         trigger: true
-        passed: [test2]
+        passed: [release-if-approved]
       - put: approval-prod-image
         params:
           pull_repository: cycloid/approval-resource
@@ -84,6 +85,8 @@ resources:
     AWS_SECRET_ACCESS_KEY: {{ec2_secret_key}}
     AWS_DEFAULT_REGION: eu-west-1
     pool: cycloid-approval
+    approval_timeout: 3 # How much time a token should live in minutes. A day is 1440
+
 
 - name: resource-src
   type: git

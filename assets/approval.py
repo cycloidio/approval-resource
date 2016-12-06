@@ -200,8 +200,19 @@ class ApprovalResource:
         """
         approval_lock = self.query_lock(lock_name=params['lock_name'])
         need_approval = params.get('need_approval', False)
+        override_approval = params.get('override_approval', False)
 
         if approval_lock:
+            # To override the previous approval, we need to reject the previous one
+            # Then the get will see it was rejected, will release the lock and fail the job
+            if override_approval:
+                approval_lock.approved = False
+                approval_lock.timestamp = datetime.utcnow()
+                self.engine.save(approval_lock, overwrite=True)
+                log.info("Rejecting the previous approval")
+                # Let the get fail before acquiring the new lock
+                time.sleep(self.wait_lock + 5)
+
             # We want to wait until the lock is not claimed
             while approval_lock.claimed:
                 log.info("The lock %s is already claimed" % params['lock_name'])
@@ -228,6 +239,7 @@ class ApprovalResource:
         if need_approval:
             approval_lock.need_approval = True
         approval_lock.claimed = True
+        approval_lock.approved = None
         approval_lock.timestamp = datetime.utcnow()
         self.engine.save(approval_lock, overwrite=True)
         log.info("Claiming the lock %s" % params['lock_name'])
