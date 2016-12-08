@@ -126,7 +126,7 @@ class ApprovalResource:
                     pool=self.pool,
                     lockname=params.get('lock_name')) \
                 .index('ts-index') \
-                .first(desc=True)
+                .all()
 
             if approval_lock:
                 # We want to wait until the approve is done
@@ -168,7 +168,7 @@ class ApprovalResource:
                     Approval.timestamp >= datetime.fromtimestamp(Decimal(version.get('timestamp'))),
                     pool=self.pool)\
                 .index('ts-index')\
-                .first(desc=True)
+                .all()
 
         metadata = []
 
@@ -289,7 +289,7 @@ class ApprovalResource:
                 lockname=lock_name,
                 pool=self.pool) \
             .index('ts-index') \
-            .first(desc=True)
+            .all()
 
     def out_cmd(self, target_dir, source, params):
         """
