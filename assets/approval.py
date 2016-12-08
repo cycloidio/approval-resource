@@ -120,12 +120,7 @@ class ApprovalResource:
         # Does the get should wait for an approval or not ?
         if 'lock_name' in params and 'need_approval' in params:
             log.debug('Looking for the lock %s in the pool %s' % (params.get('lock_name'), self.pool))
-            approval_lock = self.engine.query(Approval) \
-                .filter(
-                    pool=self.pool,
-                    lockname=params.get('lock_name')) \
-                .first()
-
+            approval_lock = self.query_lock(params.get('lock_name'))
             if approval_lock:
                 # We want to wait until the approve is done
                 while approval_lock.approved is None and approval_lock.need_approval:
@@ -159,13 +154,17 @@ class ApprovalResource:
                         approval_lock.approved = None
                         self.engine.save(approval_lock, overwrite=True)
                         exit(1)
+        elif 'lock_name' in params:
+            approval_lock = self.query_lock(params.get('lock_name'))
         else:
             # There is no approval, we have just a normal lock. Let's fetch the lock
             approval_lock = self.engine.query(Approval)\
                 .filter(
                     Approval.timestamp >= datetime.fromtimestamp(Decimal(version.get('timestamp'))),
                     pool=self.pool)\
-                .first()
+                .all()
+            if approval_lock:
+                approval_lock = approval_lock[0]
 
         metadata = []
 
@@ -281,12 +280,14 @@ class ApprovalResource:
         :param lock_name: The name of the lock to fetch
         :return: the dynamodb item
         """
-        return self.engine.query(Approval) \
+        approval_lock = self.engine.query(Approval) \
             .filter(
                 lockname=lock_name,
                 pool=self.pool) \
-            .first()
-
+            .all()
+        if approval_lock:
+            approval_lock = approval_lock[0]
+        return approval_lock
 
     def out_cmd(self, target_dir, source, params):
         """
