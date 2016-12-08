@@ -120,6 +120,7 @@ class ApprovalResource:
 
         # Does the get should wait for an approval or not ?
         if 'lock_name' in params and 'need_approval' in params:
+            log.debug('Looking for the lock %s in the pool %s' % (params.get('lock_name'), self.pool))
             approval_lock = self.engine.query(Approval) \
                 .filter(
                     pool=self.pool,
@@ -127,38 +128,39 @@ class ApprovalResource:
                 .index('ts-index') \
                 .first(desc=True)
 
-            # We want to wait until the approve is done
-            while approval_lock.approved is None and approval_lock.need_approval:
-                # Query the lock item in the loop
-                refresh_approval = self.query_lock(lock_name=params['lock_name'])
+            if approval_lock:
+                # We want to wait until the approve is done
+                while approval_lock.approved is None and approval_lock.need_approval:
+                    # Query the lock item in the loop
+                    refresh_approval = self.query_lock(lock_name=params['lock_name'])
 
-                # If the lock has timed out, then we override the refresh_approval to simulate a reject
-                if 'timeout' in params:
-                    if approval_lock.timestamp + timedelta(minutes=params['timeout']) <= datetime.now():
-                        refresh_approval.approved = False
-                    countdown = (approval_lock.timestamp.replace(microsecond=0) +
-                                 timedelta(minutes=params['timeout'])) - datetime.now().replace(microsecond=0)
-                    timedelta(minutes=params['timeout']).total_seconds() / self.wait_lock
-                    if countdown.days >= 0:
-                        log.info("The lock %s is waiting for an approval. There is %s left" %
-                                 (params['lock_name'], str(countdown)))
-                else:
-                    log.info("The lock %s is waiting for an approval" % params['lock_name'])
-                # If hasn't been approved or rejected, waiting a bit more
-                if refresh_approval.approved is None:
-                    time.sleep(self.wait_lock)
-                    continue
+                    # If the lock has timed out, then we override the refresh_approval to simulate a reject
+                    if 'timeout' in params:
+                        if approval_lock.timestamp + timedelta(minutes=params['timeout']) <= datetime.now():
+                            refresh_approval.approved = False
+                        countdown = (approval_lock.timestamp.replace(microsecond=0) +
+                                     timedelta(minutes=params['timeout'])) - datetime.now().replace(microsecond=0)
+                        timedelta(minutes=params['timeout']).total_seconds() / self.wait_lock
+                        if countdown.days >= 0:
+                            log.info("The lock %s is waiting for an approval. There is %s left" %
+                                     (params['lock_name'], str(countdown)))
+                    else:
+                        log.info("The lock %s is waiting for an approval" % params['lock_name'])
+                    # If hasn't been approved or rejected, waiting a bit more
+                    if refresh_approval.approved is None:
+                        time.sleep(self.wait_lock)
+                        continue
 
-                # Is it approved ?
-                if refresh_approval.approved:
-                    approval_lock.approved = True
-                # If not, we should fail the job and release the lock
-                else:
-                    log.info("The lock hasn't been approved, exiting")
-                    approval_lock.claimed = False
-                    approval_lock.approved = None
-                    self.engine.save(approval_lock, overwrite=True)
-                    exit(1)
+                    # Is it approved ?
+                    if refresh_approval.approved:
+                        approval_lock.approved = True
+                    # If not, we should fail the job and release the lock
+                    else:
+                        log.info("The lock hasn't been approved, exiting")
+                        approval_lock.claimed = False
+                        approval_lock.approved = None
+                        self.engine.save(approval_lock, overwrite=True)
+                        exit(1)
         else:
             # There is no approval, we have just a normal lock. Let's fetch the lock
             approval_lock = self.engine.query(Approval)\
