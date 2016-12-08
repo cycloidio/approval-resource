@@ -60,7 +60,11 @@ class CLI():
         if 'id' not in self.args:
             logging.error('Please give an id')
             exit(1)
-        approval_lock = self.engine.scan(Approval).filter(id=self.args.id).first()
+        approval_lock = self.engine.scan(Approval).filter(id=self.args.id).all()
+        if not approval_lock:
+            logging.info('No lock with the id %s has been found' % self.args.id)
+            exit(1)
+        approval_lock = approval_lock[0]
         approval_lock.approved = True
         approval_lock.timestamp = datetime.utcnow()
         self.engine.save(approval_lock, overwrite=True)
@@ -70,11 +74,16 @@ class CLI():
         if 'id' not in self.args:
             logging.error('Please give an id')
             exit(1)
-        approval_lock = self.engine.scan(Approval).filter(id=self.args.id).first()
+        approval_lock = self.engine.scan(Approval).filter(id=self.args.id).all()
+        if not approval_lock:
+            logging.info('No lock with the id %s has been found' % self.args.id)
+            exit(1)
+        approval_lock = approval_lock[0]
         approval_lock.approved = False
         approval_lock.timestamp = datetime.utcnow()
         self.engine.save(approval_lock, overwrite=True)
         logging.info('The lock %s has been rejected' % self.args.id)
+
 
     def list(self):
         approval_locks = self.engine.scan(Approval).filter(claimed=True).all()
