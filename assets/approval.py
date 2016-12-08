@@ -28,7 +28,7 @@ class Approval(Model):
     id = Field(type=str, range_key=True)
     lockname = Field()
     pool = Field(hash_key=True)
-    timestamp = Field(data_type=DateTimeType(naive=True), index='ts-index')
+    timestamp = Field(data_type=DateTimeType(naive=True))
     claimed = Field(type=bool)
     need_approval = Field(type=bool, default=False)
     approved = Field(type=bool, nullable=True)
@@ -91,7 +91,6 @@ class ApprovalResource:
             .filter(
                 Approval.timestamp >= datetime.fromtimestamp(Decimal(version.get('timestamp'))),
                 pool=self.pool) \
-            .index('ts-index') \
             .all()
         versions_list = []
         for lock in approval_locks:
@@ -125,8 +124,7 @@ class ApprovalResource:
                 .filter(
                     pool=self.pool,
                     lockname=params.get('lock_name')) \
-                .index('ts-index') \
-                .all()
+                .first()
 
             if approval_lock:
                 # We want to wait until the approve is done
@@ -167,8 +165,7 @@ class ApprovalResource:
                 .filter(
                     Approval.timestamp >= datetime.fromtimestamp(Decimal(version.get('timestamp'))),
                     pool=self.pool)\
-                .index('ts-index')\
-                .all()
+                .first()
 
         metadata = []
 
@@ -288,8 +285,8 @@ class ApprovalResource:
             .filter(
                 lockname=lock_name,
                 pool=self.pool) \
-            .index('ts-index') \
-            .all()
+            .first()
+
 
     def out_cmd(self, target_dir, source, params):
         """
