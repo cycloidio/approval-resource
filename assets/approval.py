@@ -147,13 +147,15 @@ class ApprovalResource:
                     # Is it approved ?
                     if refresh_approval.approved:
                         approval_lock.approved = True
-                    # If not, we should fail the job and release the lock
                     else:
-                        log.info("The lock hasn't been approved, exiting")
-                        approval_lock.claimed = False
-                        approval_lock.approved = None
-                        self.engine.save(approval_lock, overwrite=True)
-                        exit(1)
+                        approval_lock.approved = False
+                # If the lock has been rejected we should fail the job and release the lock
+                if not approval_lock.approved:
+                    log.info("The lock hasn't been approved, exiting")
+                    approval_lock.claimed = False
+                    approval_lock.approved = None
+                    self.engine.save(approval_lock, overwrite=True)
+                    exit(1)
         elif 'lock_name' in params:
             approval_lock = self.query_lock(params.get('lock_name'))
         else:
