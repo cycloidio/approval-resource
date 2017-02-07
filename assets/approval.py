@@ -150,7 +150,7 @@ class ApprovalResource:
                     else:
                         approval_lock.approved = False
                 # If the lock has been rejected we should fail the job and release the lock
-                if not approval_lock.approved:
+                if not approval_lock.approved and approval_lock.need_approval:
                     log.info("The lock hasn't been approved, exiting")
                     approval_lock.claimed = False
                     approval_lock.approved = None
