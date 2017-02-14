@@ -223,8 +223,11 @@ class ApprovalResource:
                 time.sleep(self.wait_lock + 5)
 
             # We want to wait until the lock is not claimed
+            log_only_once = False
             while approval_lock.claimed:
-                log.info("The lock %s is already claimed" % params['lock_name'])
+                if not log_only_once:
+                    log_only_once = True
+                    log.info("The lock %s is already claimed" % params['lock_name'])
                 refresh_approval = self.query_lock(lock_name=params['lock_name'])
                 if not refresh_approval:
                     log.info("The lock does not exist")
